@@ -1,53 +1,55 @@
 /*
 	A library for building pseudo-NMEA packets
 */
-// Magic extern definition
-#ifdef __NMEA_H
-	#define EXTERN /**/
-#else
-#ifdef __cplusplus
-	#define EXTERN extern "C"
-#else
-	#define EXTERN extern
-#endif	//	C++
-#endif	//	__NMEA_H
 
 /* 	--- constants and types --- */
-#define g_NMEA_buffer_length	256
+#define NMEA_BUF_LEN	256
+
+enum E_NMEA_STATES {
+	e_NMEA_DOLLAR = '$',
+	e_NMEA_STAR = '*',
+	e_NMEA_DELIMIT = ',',
+	e_NMEA_INVALID = 0,
+	e_NMEA_VALID = 1
+};
 
 typedef struct NMEA_MESSAGE_T {
-	unsigned char String[g_NMEA_buffer_length];
+	unsigned char String[NMEA_BUF_LEN];
 	unsigned char Length;		// nunber of characters in String
 	unsigned char Arguments;	// number of arguments in String
-} NMEA_Packet_t;
+	unsigned char Checksum;		// current CRC of String
+	enum E_NMEA_STATES State;	// current state of parsing
+} NMEA_msg_t;
 
-/* 	--- functions and state --- */
-// initialise all state
-EXTERN void NMEA_init(void);
+/* 	--- functions --- */
+// parse a byte into msg
+extern char NMEA_parse_byte(NMEA_msg_t *const msg, const unsigned char byte);
 
-// initialise the message with $ and the command string
-EXTERN void NMEA_start(char *command);
+// parse a string into a mmsg
+extern char NMEA_parse_string(NMEA_msg_t *const msg, const char *const str);
 
-// insert a comma seperated argument
-EXTERN void NMEA_add_argument(char *arg);
+// return the calculated checksum of msg
+extern unsigned char NMEA_CRC(NMEA_msg_t *const msg);
 
-// conclude the packet with an asterisk and the checksum followed by an \r. return the string
-EXTERN char *NMEA_finish(void);
+// start constructing a msg
+extern char NMEA_start(NMEA_msg_t *const msg, const char *const command);
 
-// calculates the checksum of the passed NMEA packet and compares with the packet's own
-EXTERN char NMEA_validate(char *str);
+// add an argument to msg
+extern char NMEA_add(NMEA_msg_t *const msg, const char *const arg);
+
+// copy and complete msg into out
+extern char NMEA_finish(NMEA_msg_t *const msg, char *const out);
+
+// return the calculated checksum of msg
+extern unsigned char NMEA_CRC(NMEA_msg_t *const msg);
+// return the calculated number of arguments in msg
+extern unsigned char NMEA_argc(NMEA_msg_t *const msg);
 
 // copy the index'th argument from str into buf, return the length of the argument
-EXTERN unsigned char NMEA_get_argument(char *str, char index, char *buf);
+extern unsigned char NMEA_get(NMEA_msg_t *const msg, unsigned char index, char *const buf);
 
-// retreive the command string from str into buf
-#define NMEA_get_command(str, buf)		NMEA_get_argument(str, 0, buf)
+// retreive the command string from msg into buf
+#define NMEA_command(msg, buf)		NMEA_get(msg, 0, buf)
 
-// a complete and valid message has been received by NMEA_receive_character(ch)
-EXTERN char NMEA_received;
-// the latest message received by NMEA_receive_character
-EXTERN NMEA_Packet_t NMEA_receive;
-// an NMEA packet reading state machine
-EXTERN void NMEA_receive_character(char ch);
+// -- end of file
 
-#undef EXTERN	// end of extern magic

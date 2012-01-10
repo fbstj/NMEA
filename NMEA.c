@@ -1,144 +1,124 @@
 /*
 	A library for building pseudo-NMEA packets
 */
-#define __NMEA_H
 #include "NMEA.h"
-#undef __NMEA_H
 #include <ctype.h>		// isprint
 #include <string.h>
-#include "util.h"
+#include <stdio.h>
 
 #define g_CRC_init	0xFF
-
-static xdata char s_NMEA_buf[g_NMEA_buffer_length], *s_NMEA_ptr;
-static xdata unsigned char s_NMEA_crc;
-
-void NMEA_init(void)
+// return the calculated checksum of msg
+unsigned char NMEA_CRC(NMEA_msg_t *const msg)
 {
-	NMEA_received = 0;
-	memset(&NMEA_receive, 0, sizeof(NMEA_receive));
-	memset(s_NMEA_buf, 0, sizeof(s_NMEA_buf));
-	s_NMEA_ptr = s_NMEA_buf;
-	s_NMEA_crc = g_CRC_init;
+unsigned char i;
+	msg->State = e_NMEA_STAR;
+	msg->Checksum = g_CRC_init;
+	for (i = 0; i < msg->Length; i++)
+		msg->Checksum ^= msg->String[i];
+	return msg->Checksum;
 }
 
-static void NMEA_add_char(char c)
+unsigned char NMEA_argc(NMEA_msg_t *const msg)
 {
-	*s_NMEA_ptr++ = c;					// add character to string
-	s_NMEA_crc ^= c;					// CRC logic
+unsigned char i;
+	msg->Arguments = 0;
+	for (i = 0; i < msg->Length; i++)
+		msg->Arguments += msg->String[i] == e_NMEA_DELIMIT;
+	return msg->Arguments;
 }
 
-void NMEA_start(char *command)
+char NMEA_start(NMEA_msg_t *const msg, const char *const command)
 {
-	s_NMEA_ptr = s_NMEA_buf;
-	s_NMEA_crc = g_CRC_init;
-	*s_NMEA_ptr++ = '$';				// dont include $ in the CRC
-	while(*command)
-		NMEA_add_char(*command++);
-	*s_NMEA_ptr = 0;
+unsigned char l = strlen(command);
+	msg->State = e_NMEA_DOLLAR;
+	msg->Arguments = 0;
+	for (msg->Length = 0; msg->Length < l; msg->Length++)
+		msg->String[msg->Length] = command[msg->Length];
+	return msg->Length;
 }
 
-void NMEA_add_argument(char *arg)
+char NMEA_add(NMEA_msg_t *const msg, const char *const arg)
 {
-	NMEA_add_char(',');
-	while(*arg)
-		NMEA_add_char(*arg++);
-	*s_NMEA_ptr = 0;
+unsigned char i, l = strlen(arg);
+	msg->String[msg->Length++] = ','; e_NMEA_DELIMIT;
+	for (i = 0; i < l; i++)
+		msg->String[msg->Length + i] = arg[i];
+	msg->Length += i;
+	msg->String[msg->Length] = 0;
+	msg->Arguments++;
+	return l;
 }
 
-char *NMEA_finish(void)
+char NMEA_finish(NMEA_msg_t *const msg, char *const out)
 {
-char *crc = HEX_write_byte(s_NMEA_crc);
-	*s_NMEA_ptr++ = '*';
-	*s_NMEA_ptr++ = *crc++;
-	*s_NMEA_ptr++ = *crc;
-	*s_NMEA_ptr = 0;
-	return s_NMEA_buf;
+unsigned char i; char crc[2];
+	out[0] = msg->State;
+	for (i = 0; i < msg->Length; i++)
+		out[1 + i] = msg->String[i];
+	NMEA_CRC(msg);
+	out[i + 1] = msg->State;
+	sprintf(out + i + 2,"%02X", msg->Checksum);
+	msg->State = e_NMEA_VALID;
+	return i + 4;
 }
 
-char NMEA_validate(char *str)
+unsigned char NMEA_get(NMEA_msg_t *const msg, unsigned char index, char *const buf)
 {
-unsigned char CRC_rec, CRC_calc;
-char *ptr = str;
-	CRC_calc = g_CRC_init;
-	if(*ptr++ != '$')
+unsigned char i = 0, j = 0;
+	if (msg->State != e_NMEA_VALID || msg->Arguments < index)
 		return 0;
-	while(*ptr != '*')
+	// navigate to index'th argument
+	while (index > 0)
+		if(msg->String[i++] == e_NMEA_DELIMIT)
+			index--;
+	while (msg->String[i] != e_NMEA_DELIMIT && isprint(msg->String[i]))
+		buf[j++] = msg->String[i++];
+	buf[j] = 0;
+	return j;
+}
+
+char NMEA_parse_byte(NMEA_msg_t *const msg, const unsigned char byte)
+{
+static char STARS, STAR[2];
+	if (byte == e_NMEA_DOLLAR)
 	{
-		if(!isprint(*ptr))
-			return 0;
-		else
-			CRC_calc ^= *ptr++;
+		msg->Length = 0;
+		return msg->State = byte;
 	}
-	CRC_rec = HEX_read(ptr+1);
-	return CRC_rec == CRC_calc;
-}
-
-static xdata char s_arg_buf[g_NMEA_buffer_length];
-unsigned char NMEA_get_argument(char *const str, unsigned char index, char *const buf)
-{
-char *x;
-	if(!NMEA_validate(str))
-		return 0;
-	strcpy(s_arg_buf, str + 1);
-	x = strtok(s_arg_buf, "*,");
-	while(index--)
-		x = strtok(NULL, "*,");
-	strncpy(buf, x, 16);
-}
-
-unsigned char NMEA_arguments(NMEA_Packet_t *packet)
-{
-unsigned char i, args = 0;
-	for(i = 0; i < packet->Length; i++)
+	if (!isprint(byte))
+		return msg->State = e_NMEA_INVALID;
+	if (byte == e_NMEA_STAR)
 	{
-		if(packet->String[i] == ',')
-			args++;
+		STARS = 0;
+		return msg->State = byte;
 	}
-	return args;
-}
-
-void NMEA_receive_character(char ch)
-{
-static unsigned char state;
-NMEA_Packet_t *buf = &NMEA_receive;
-	if (ch == '$')
-	{	// the start of a packet
-		buf->Length = 0;
-		buf->Arguments = 0;
-		state = 0;
-	}
-	else if (ch == '*')
-	{	// two more characters for the CRC
-		state = 3;
-	}
-	else if (!isprint(ch))
-	{	// invalid character, reset
-		state = 0;
-		buf->Length = 0;
-	}
-	buf->String[buf->Length++] = ch;
-	state --;
-	if (state == 0)
-	{	// end of packet
-		buf->String[buf->Length] = 0;
-		NMEA_received = NMEA_validate(buf->String);
-		buf->Arguments = NMEA_arguments(buf);
+	switch (msg->State)
+	{
+	case e_NMEA_DOLLAR:
+		msg->String[msg->Length++] = byte;
+	break;
+	
+	case e_NMEA_STAR:
+		STAR[STARS++] = byte;
+		if(STARS < 2)
+			return msg->State;
+		if(NMEA_CRC(msg) != strtoul(STAR, NULL, 16))
+			return msg->State == e_NMEA_INVALID;
+		NMEA_argc(msg);
+		msg->State = e_NMEA_VALID;
+	break;
 	}
 }
 
-//	internal testing procedures
-void NMEA_test(void)
+char NMEA_parse_string(NMEA_msg_t *const msg, const char *const str)
 {
-static char *_str, _buf[16], _tmp, _len;
-	NMEA_start("ABCD");
-	NMEA_add_argument("cde");
-	NMEA_add_argument("efg");
-	_str = NMEA_finish();
-	_tmp = NMEA_validate(_str);
-	_len = NMEA_get_argument(_str, 0, _buf);
-	_len = NMEA_get_argument(_str, 1, _buf);
-	_len = NMEA_get_argument(_str, 2, _buf);
-	_len = NMEA_get_argument(_str, 3, _buf);
-	_len = NMEA_get_argument(_str, 4, _buf);
+unsigned char i = 0, l = strlen(str);
+	for(i = 0; i < l; i++)
+	{
+		NMEA_parse_byte(msg, str[i]);
+		if(msg->State == e_NMEA_VALID)
+			return i + 1;
+	}
+	return 0;
 }
+
