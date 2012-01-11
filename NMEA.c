@@ -3,8 +3,9 @@
 */
 #include "NMEA.h"
 #include <ctype.h>		// isprint
-#include <string.h>
-#include <stdio.h>
+#include <string.h>		// strlen
+#include <stdio.h>		// sprintf
+#include <stdlib.h>		// strtoul
 
 #define g_CRC_init	0xFF
 // return the calculated checksum of msg
@@ -40,7 +41,7 @@ unsigned char l = strlen(command);
 char NMEA_add(NMEA_msg_t *const msg, const char *const arg)
 {
 unsigned char i, l = strlen(arg);
-	msg->String[msg->Length++] = ','; e_NMEA_DELIMIT;
+	msg->String[msg->Length++] = e_NMEA_DELIMIT;
 	for (i = 0; i < l; i++)
 		msg->String[msg->Length + i] = arg[i];
 	msg->Length += i;
@@ -51,7 +52,7 @@ unsigned char i, l = strlen(arg);
 
 char NMEA_finish(NMEA_msg_t *const msg, char *const out)
 {
-unsigned char i; char crc[2];
+unsigned char i;
 	out[0] = msg->State;
 	for (i = 0; i < msg->Length; i++)
 		out[1 + i] = msg->String[i];

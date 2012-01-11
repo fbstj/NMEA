@@ -4,7 +4,11 @@
 
 void print(char *arg, int len) { printf(">%s | %i\n\r", arg, len); }
 
+#ifdef __C51__
+void main(void)
+#else
 int main(int argc, char *argv[])
+#endif
 {
 NMEA_msg_t M, *m = &M;
 char msg[256], arg[256], i, len;
