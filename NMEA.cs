@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace fbstj.Serial
+namespace fbstj
 {
-	public delegate void Consumer<T>(T value);
-	public delegate S Converter<S,T>(T value);
-
 	public static class NMEA
 	{
 		// the three characters used to make packets
@@ -15,7 +12,7 @@ namespace fbstj.Serial
 		private const string CRC_FORMAT = "X2";
 
 		// The method that converts the contents of an NMEA packet into a single byte checksum
-		public static Converter<byte, string> CRC = delegate(string value)
+		public static Converter<string, byte> CRC = delegate(string value)
 		{
 			byte init = 0xFF;
 			foreach (byte b in value)
@@ -54,7 +51,7 @@ namespace fbstj.Serial
 		}
 
 		/// <summary>Consume a serially received Packet</summary>
-		public static event Consumer<Packet> Consume;
+		public static event Action<Packet> Recieve;
 
 		private static byte _rec_state;
 		private static string _rec_buf;
@@ -93,8 +90,8 @@ namespace fbstj.Serial
 				_received = false;
 				return;
 			}
-			if (Consume != null)
-				Consume(_latest);
+			if (Recieve != null)
+				Recieve.Invoke(_latest);
 		}
 
 		/// <summary>Block until a packet is received</summary>
