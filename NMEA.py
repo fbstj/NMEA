@@ -40,6 +40,42 @@ def parse_all(string):
 		n = string.find(m) + len(m) + 1
 		o = parse(string[n:])
 
+class Parser():
+	def __init__(self):
+		self.buf = self.state = None
+
+	def byte(self, ch):
+		if not ch in string.printable:
+			self.buf = None
+			return
+		if ch == '$':
+			self.buf = ""
+			self.state = 0
+			return
+		if ch == '*':
+			self.state = 3
+		if self.buf is None:
+			return
+		self.buf += ch
+		self.state -= 1
+		if self.state != 0:
+			return
+		inner, check = self.buf.split('*')
+		try:
+			check = int(check, 16)
+		except ValueError:
+			self.buf = None
+			return
+		if check == calculate(inner):
+			self.buf = None
+			return inner.split(',')
+
+	def parse(self, str):
+		for ch in str:
+			v = byte(ch)
+			if v is not None:
+				yield v
+
 if __name__ == "__main__":
 	import sys
 	s = make(*sys.argv[1:])
